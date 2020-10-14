@@ -11,8 +11,9 @@ import System.IO
 type Parser = Parsec Void String
 
 data Expr = App Expr Expr
-          | Lambda String Expr
+          | Lambda Expr Expr
           | Identifier String
+          | Tag Int
           deriving (Eq,Show)
 
 data Stmt = Define Expr Expr
@@ -56,32 +57,43 @@ identifierP :: Parser Expr
 identifierP  = Identifier <$> identifierP'
 
 lambdaP :: Parser Expr
-lambdaP = try (Lambda <$ symbol "λ" <*> identifierP' <* symbol "." <*> exprP)
+lambdaP = try (Lambda <$ symbol "λ" <*> identifierP <* symbol "." <*> exprP)
       <|> do _ <- symbol "λ"
-             args <- some identifierP'
+             args <- some identifierP
              _ <- symbol "."
              body <- exprP
              return $ foldr Lambda body args
 
  -- <|> symbol 'λ' *> space *> liftM2 (foldr Lambda) (symbol '.' *> space *> exprP) (some (identifierP <* space))
 
+
+tagify :: Int -> Expr -> Expr
+tagify n (Lambda i body) = Lambda (Tag n) $ tagify (n + 1) (substitute body i (Tag n))
+tagify _ (App exp1 exp2) = App (tagify 0 exp1) (tagify 0 exp2)
+tagify _ i = i
+
 par :: String -> Expr
-par a = case parse exprP "" a of
-          Right expr -> expr
-          Left err -> error $ errorBundlePretty err
+par a = tagify 0 $ case parse exprP "" a of
+                     Right expr -> expr
+                     Left err -> error $ errorBundlePretty err
 
 pars :: String -> Stmt
 pars a = case parse stmtP "" a of
            Right expr -> expr
            Left err -> error $ errorBundlePretty err
 
-substitute :: Expr -> String -> Expr -> Expr
+substitute :: Expr -> Expr -> Expr -> Expr
 substitute l@(Lambda x expr) old new = if x == old then l else Lambda x $ substitute expr old new
-substitute i@(Identifier name) old new = if name == old then new else i
 substitute (App exp1 exp2) old new = App (substitute exp1 old new) (substitute exp2 old new)
+substitute i old new = if i == old then new else i
+-- substitute i@(Identifier name) old new = if name == old then new else i
 
 eval :: Expr -> Expr
 eval (App (Lambda x body) expr) = eval $ substitute body x expr
 eval (App exp1 exp2) = eval $ App (eval exp1) (eval exp2)
-eval (Lambda x expr) = Lambda x (eval expr)
+eval (Lambda x expr) = tagify 0 $ Lambda x (eval expr)
+-- eval (Identifier _) = error "sorry no bound variables yet"
 eval expr = expr
+
+teval :: String -> Expr
+teval expr = eval $ par expr
