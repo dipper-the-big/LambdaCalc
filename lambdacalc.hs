@@ -91,9 +91,9 @@ substitute i old new = if i == old then new else i
 eval :: Expr -> Expr
 eval (App (Lambda x body) expr) = eval $ substitute body x expr
 eval (App exp1 exp2) = eval $ App (eval exp1) (eval exp2)
-eval (Lambda x expr) = tagify 0 $ Lambda x (eval expr)
+eval (Lambda x expr) = Lambda x (eval expr)
 -- eval (Identifier _) = error "sorry no bound variables yet"
 eval expr = expr
 
 teval :: String -> Expr
-teval expr = eval $ par expr
+teval expr = tagify 0 $ eval $ par expr
