@@ -13,11 +13,21 @@ type Parser = Parsec Void String
 data Expr = App Expr Expr
           | Lambda Expr Expr
           | Identifier String
-          | Tag Int
-          deriving (Eq,Show)
+          | Tag (Int,Int)
+          deriving Eq
+
+instance Show Expr where
+  show (App e l@(Lambda _ _)) = show e ++ " (" ++ show l ++ ") "
+  show (App e a@(App _ _)) = show e ++ " (" ++ show a ++ ")"
+  show (App (App e1 e2) e3) = show e1 ++ " " ++ show e2 ++ " " ++ show e3
+  show (App e1 e2) = show e1 ++ " " ++ show e2
+  show (Lambda x body) = "λ" ++ show x ++ "." ++ show body
+  show (Tag (a,b)) = [['a'..'z'] !! (a + b)]
+  show (Identifier x) = x
 
 data Stmt = Define String Expr
           | Display Expr
+          | Expand Expr
           | Equal Expr Expr
           | Bare Expr
 
@@ -43,21 +53,6 @@ lexeme = L.lexeme space
 symbol :: String -> Parser String
 symbol = L.symbol space
 
-exprP' :: Parser Expr
-exprP' = symbol "(" *> exprP <* symbol ")"
-     <|> lambdaP
-     <|> identifierP
-
-exprP :: Parser Expr
-exprP = lexeme $ foldl1 App <$> some exprP'
-
-stmtP :: Parser Stmt
-stmtP = lexeme
-         $  try (Define <$> identifierP' <* symbol "=" <*> (tagify 0 <$> exprP))
-        <|> symbol "display:" *> (Display <$> (tagify 0 <$> exprP))
-        <|> try (Equal <$> (tagify 0 <$> exprP) <* symbol "≡" <*> (tagify 0 <$> exprP))
-        <|> Bare <$> (tagify 0 <$> exprP)
-
 identifierP' :: Parser String
 identifierP' = lexeme $ some letterChar
 
@@ -72,15 +67,30 @@ lambdaP = try (Lambda <$ symbol "λ" <*> identifierP <* symbol "." <*> exprP)
              body <- exprP
              return $ foldr Lambda body args
 
-par' :: String -> Expr
-par' a = tagify 0 $ case parse exprP "" a of
-                      Right expr -> expr
-                      Left err -> error $ errorBundlePretty err
+exprP' :: Parser Expr
+exprP' = symbol "(" *> exprP <* symbol ")"
+     <|> lambdaP
+     <|> identifierP
 
-par :: String -> IOErrH Expr
-par a = fmap (tagify 0) $ case parse exprP "" a of
-                            Right expr -> return expr
-                            Left err -> throwError $ ParseErr (errorBundlePretty err)
+exprP :: Parser Expr
+exprP = lexeme $ foldl1 App <$> some exprP'
+
+stmtP :: Parser Stmt
+stmtP = lexeme
+         $  try (Define <$> identifierP' <* symbol "=" <*> exprP)
+        <|> symbol "expand:" *> (Expand <$> exprP)
+        <|> symbol "display:" *> (Display <$> exprP)
+        <|> try (Equal <$> exprP <* symbol "≡" <*> exprP)
+        <|> Bare <$> exprP
+
+unId :: Env -> Expr -> IOErrH Expr
+unId env (Identifier x) = getvar env x >>= unId env
+unId env (App a b) = liftM2 App (unId env a) (unId env b)
+unId env (Lambda x expr) =  Lambda x <$> unId env expr
+unId _ i = return i
+
+pp :: Env -> Expr -> IOErrH Expr
+pp env expr = tagify 0 0 <$> unId env (tagify 0 0 expr)
 
 readExpr :: String -> IOErrH Stmt
 readExpr a = case parse stmtP "" a of
@@ -89,15 +99,26 @@ readExpr a = case parse stmtP "" a of
 
 -- Evaluation
 
-tagify :: Int -> Expr -> Expr
-tagify n (Lambda i body) = Lambda (Tag n) $ tagify (n + 1) (substitute body i (Tag n))
-tagify n (App exp1 exp2) = App (tagify 0 exp1) (tagify 0 exp2)
-tagify _ i = i
+tagify :: Int -> Int -> Expr -> Expr
+tagify e n (Lambda i body) = Lambda (Tag (e,n)) $ tagify e (n + 1) (substitute body i (Tag (e,n)))
+tagify e _ (App exp1 exp2) = App (tagify (e + 1) 0 exp1) (tagify e 0 exp2)
+tagify _ _ i = i
 
 substitute :: Expr -> Expr -> Expr -> Expr
 substitute l@(Lambda x expr) old new = if x == old then l else Lambda x $ substitute expr old new
 substitute (App exp1 exp2) old new = App (substitute exp1 old new) (substitute exp2 old new)
 substitute i old new = if i == old then new else i
+
+-- helper for evaluation trace
+tevalExpr :: Env -> Expr -> IO Expr
+tevalExpr env e@(App (Lambda x body) expr) = liftIO $ print e >> tevalExpr env (substitute body x expr)
+tevalExpr env e@(App exp1 exp2) = liftIO $ print e >> do e1 <- tevalExpr env exp1
+                                                         e2 <- tevalExpr env exp2
+                                                         if e1 == exp1 && e2 == exp2
+                                                           then return e
+                                                           else tevalExpr env (App e1 e2)
+tevalExpr env e@(Lambda x expr) = liftIO $ print e >> Lambda x <$> tevalExpr env expr
+tevalExpr _ expr = liftIO $ print expr >> return expr
 
 evalExpr :: Env -> Expr -> IOErrH Expr
 evalExpr env (App (Lambda x body) expr) = evalExpr env (substitute body x expr)
@@ -112,30 +133,13 @@ evalExpr env (Identifier x) = getvar env x
 evalExpr _ expr = return expr
 
 eval :: Env -> Stmt -> IOErrH String
-eval env (Define name expr) = show . tagify 0 <$> (evalExpr env expr >>= definevar env name)
-eval env (Display expr) = show . tagify 0 <$> evalExpr env expr
-eval env (Equal exp1 exp2) = do e1 <- tagify 0 <$> (evalExpr env =<< unid env exp1)
-                                e2 <- tagify 0 <$> (evalExpr env =<< unid env exp2)
+eval env (Define name expr) = show . tagify 0 0 <$> (pp env expr >>= evalExpr env >>= definevar env name)
+eval env (Display expr) = show . tagify 0 0 <$> (pp env expr >>= evalExpr env)
+eval env (Expand expr) = show . tagify 0 0 <$> pp env expr
+eval env (Equal exp1 exp2) = do e1 <- tagify 0 0 <$> (evalExpr env =<< pp env exp1)
+                                e2 <- tagify 0 0 <$> (evalExpr env =<< pp env exp2)
                                 return $ show (e1 == e2)
-  where
-    unid env' i@(Identifier _) = evalExpr env' i
-    unid _ i = return i
-eval env (Bare expr) = show . tagify 0 <$> evalExpr env expr
-
--- eval' :: Expr -> Expr
--- eval' (App (Lambda x body) expr) = eval' $ substitute body x expr
--- eval' (App exp1 exp2) = eval' $ App (eval' exp1) (eval' exp2)
--- eval' (Lambda x expr) = Lambda x (eval' expr)
--- eval' expr = expr
-
--- teval' :: String -> Expr
--- teval' expr = tagify 0 $ eval' $ par' expr
-
-
--- teval :: String -> IO ()
--- teval expr = do env <- nullEnv
---                 res <- runIOExpr $ fmap (show . tagify 0) $ par expr >>= eval env
---                 putStrLn res
+eval env (Bare expr) = show . tagify 0 0 <$> (pp env expr >>= evalExpr env)
 
 extract :: ErrH String -> String
 extract = extract'' . extract'
@@ -150,9 +154,9 @@ runIOExpr action = extract <$> runExceptT action
 -- Environment
 
 nullEnv :: IO Env
-nullEnv = newIORef $ Map.fromList [ ("I",Lambda (Tag 0) (Tag 0))
-                                  , ("K",Lambda (Tag 0) (Lambda (Tag 1) (Tag 0)))
-                                  , ("S",Lambda (Tag 0) (Lambda (Tag 1) (Lambda (Tag 2) (App (App (Tag 0) (Tag 2)) (App (Tag 1) (Tag 2))))))
+nullEnv = newIORef $ Map.fromList [ ("I",Lambda (Tag (0,0)) (Tag (0,0)))
+                                  , ("K",Lambda (Tag (0,0)) (Lambda (Tag (0,1)) (Tag (0,0))))
+                                  , ("S",Lambda (Tag (0,0)) (Lambda (Tag (0,1)) (Lambda (Tag (0,2)) (App (App (Tag (0,0)) (Tag (0,2))) (App (Tag (0,1)) (Tag (0,2)))))))
                                   ]
 
 getvar :: Env -> String -> IOErrH Expr
@@ -194,3 +198,30 @@ repl = nullEnv >>= loop
       inp <- getLine
       when (inp /= "exit") $
         runIOExpr (readExpr inp >>= eval env) >>= putStrLn >> loop env
+
+-- Extras (For Debugging)
+--
+-- par' :: String -> Expr
+-- par' a = tagify 0 0 $ case parse exprP "" a of
+--                         Right expr -> expr
+--                         Left err -> error $ errorBundlePretty err
+
+-- par :: String -> IOErrH Expr
+-- par a = fmap (tagify 0) $ case parse exprP "" a of
+--                             Right expr -> return expr
+--                             Left err -> throwError $ ParseErr (errorBundlePretty err)
+--
+-- eval' :: Expr -> Expr
+-- eval' (App (Lambda x body) expr) = eval' $ substitute body x expr
+-- eval' (App exp1 exp2) = eval' $ App (eval' exp1) (eval' exp2)
+-- eval' (Lambda x expr) = Lambda x (eval' expr)
+-- eval' expr = expr
+
+-- teval' :: String -> Expr
+-- teval' expr = tagify 0 $ eval' $ par' expr
+
+
+-- teval :: String -> IO ()
+-- teval expr = do env <- nullEnv
+--                 res <- runIOExpr $ fmap (show . tagify 0) $ par expr >>= eval env
+--                 putStrLn res
