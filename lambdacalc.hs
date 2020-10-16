@@ -3,6 +3,7 @@ import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
 import Data.Void
 import Data.IORef
+import Data.List
 import qualified Data.Map as Map
 import Control.Monad
 import Control.Monad.Except
@@ -19,11 +20,19 @@ data Expr = App Expr Expr
 instance Show Expr where
   show (App e l@(Lambda _ _)) = show e ++ " (" ++ show l ++ ") "
   show (App e a@(App _ _)) = show e ++ " (" ++ show a ++ ")"
-  show (App (App e1 e2) e3) = show e1 ++ " " ++ show e2 ++ " " ++ show e3
+  show (App a@(App _ _) e3) = show a ++ " " ++ show e3
   show (App e1 e2) = show e1 ++ " " ++ show e2
   show (Lambda x body) = "λ" ++ show x ++ "." ++ show body
-  show (Tag (a,b)) = [['a'..'z'] !! (a + b)]
+  show (Tag l) = [taglabel l]
   show (Identifier x) = x
+
+taglabel :: (Int, Int) -> Char
+taglabel (a,b) = ['a'..'z'] !! case elemIndex (a,b) ls of
+                                 Just n -> n
+                                 Nothing -> 0
+  where
+    n_part n = (0,0) : zip [0..(n - 1)] (repeat n) ++ zip (repeat n) [0..(n - 1)] ++ [(n,n)]
+    ls = concatMap n_part [1..]
 
 data Stmt = Define String Expr
           | Display Expr
@@ -127,7 +136,6 @@ evalExpr env e@(App exp1 exp2) = do e1 <- evalExpr env exp1
                                     if e1 == exp1 && e2 == exp2
                                       then return e
                                       else evalExpr env (App e1 e2)
--- evalExpr _ (Lambda x expr) = return $ Lambda x expr -- <$> evalExpr env expr
 evalExpr env (Lambda x expr) =  Lambda x <$> evalExpr env expr
 evalExpr env (Identifier x) = getvar env x
 evalExpr _ expr = return expr
