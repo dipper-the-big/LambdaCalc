@@ -24,6 +24,7 @@ instance Show Expr where
   show (App e1 e2) = show e1 ++ " " ++ show e2
   show (Lambda x body) = "λ" ++ show x ++ "." ++ show body
   show (Tag l) = [taglabel l]
+  -- show (Tag l) = show l
   show (Identifier x) = x
 
 taglabel :: (Int, Int) -> Char
@@ -98,9 +99,6 @@ unId env (App a b) = liftM2 App (unId env a) (unId env b)
 unId env (Lambda x expr) =  Lambda x <$> unId env expr
 unId _ i = return i
 
-pp :: Env -> Expr -> IOErrH Expr
-pp env expr = tagify 0 0 <$> unId env (tagify 0 0 expr)
-
 readExpr :: String -> IOErrH Stmt
 readExpr a = case parse stmtP "" a of
                Right expr -> return expr
@@ -110,8 +108,11 @@ readExpr a = case parse stmtP "" a of
 
 tagify :: Int -> Int -> Expr -> Expr
 tagify e n (Lambda i body) = Lambda (Tag (e,n)) $ tagify e (n + 1) (substitute body i (Tag (e,n)))
-tagify e _ (App exp1 exp2) = App (tagify (e + 1) 0 exp1) (tagify e 0 exp2)
+tagify e _ (App exp1 exp2) = App (tagify (e + 2) 0 exp1) (tagify (e + 1) 0 exp2)
 tagify _ _ i = i
+
+pp :: Env -> Expr -> IOErrH Expr
+pp env expr = tagify 0 0 <$> unId env (tagify 0 0 expr)
 
 substitute :: Expr -> Expr -> Expr -> Expr
 substitute l@(Lambda x expr) old new = if x == old then l else Lambda x $ substitute expr old new
