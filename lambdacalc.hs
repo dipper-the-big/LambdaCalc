@@ -31,8 +31,8 @@ instance Show Expr where
 taglabel :: (Int, Int) -> Char
 taglabel (a,b) = ['a'..'z'] !! fromMaybe 0 (elemIndex (a,b) ls)
   where
-    n_part n = (0,0) : zip [0..(n - 1)] (repeat n) ++ zip (repeat n) [0..(n - 1)] ++ [(n,n)]
-    ls = concatMap n_part [1..]
+    n_part n = zip [0..(n - 1)] (repeat n) ++ zip (repeat n) [0..(n - 1)] ++ [(n,n)]
+    ls = (0,0) : concatMap n_part [1..]
 
 data Stmt = Define String Expr
           | Display Expr
