@@ -4,6 +4,7 @@ import qualified Text.Megaparsec.Char.Lexer as L
 import Data.Void
 import Data.IORef
 import Data.List
+import Data.Maybe
 import qualified Data.Map as Map
 import Control.Monad
 import Control.Monad.Except
@@ -28,9 +29,7 @@ instance Show Expr where
   show (Identifier x) = x
 
 taglabel :: (Int, Int) -> Char
-taglabel (a,b) = ['a'..'z'] !! case elemIndex (a,b) ls of
-                                 Just n -> n
-                                 Nothing -> 0
+taglabel (a,b) = ['a'..'z'] !! fromMaybe 0 (elemIndex (a,b) ls)
   where
     n_part n = (0,0) : zip [0..(n - 1)] (repeat n) ++ zip (repeat n) [0..(n - 1)] ++ [(n,n)]
     ls = concatMap n_part [1..]
