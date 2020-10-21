@@ -136,6 +136,7 @@ evalExpr env e@(App exp1 exp2) = do e1 <- evalExpr env exp1
                                     if e1 == exp1 && e2 == exp2
                                       then return e
                                       else evalExpr env (App e1 e2)
+evalExpr env (Lambda x e@(App expr y)) = if x == y then return expr else Lambda x <$> evalExpr env e
 evalExpr env (Lambda x expr) =  Lambda x <$> evalExpr env expr
 evalExpr env (Identifier x) = getvar env x
 evalExpr _ expr = return expr
