@@ -183,9 +183,7 @@ isBound env var = do env' <- readIORef env
 setvar :: Env -> String -> Expr -> IOErrH Expr
 setvar env var val =
   do env' <- liftIO $ readIORef env
-     case Map.lookup var env' of
-       Nothing -> error "Wow, something really went wrong"
-       Just _ -> liftIO $ writeIORef env $ Map.adjust (const val) var env'
+     liftIO $ writeIORef env $ Map.insert var val env'
      return val
 
 definevar :: Env -> String -> Expr -> IOErrH Expr
