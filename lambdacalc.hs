@@ -35,6 +35,7 @@ taglabel (a,b) = ['a'..'z'] !! fromMaybe 0 (elemIndex (a,b) ls)
     ls = (0,0) : concatMap n_part [1..]
 
 data Stmt = Define String Expr
+          | Load String
           | Display Expr
           | Expand Expr
           | Equal Expr Expr
@@ -86,32 +87,49 @@ exprP = lexeme $ foldl1 App <$> some exprP'
 
 stmtP :: Parser Stmt
 stmtP = lexeme
-         $  try (Define <$> identifierP' <* symbol "=" <*> exprP)
-        <|> symbol "expand:" *> (Expand <$> exprP)
+         $  symbol "expand:" *> (Expand <$> exprP)
         <|> symbol "display:" *> (Display <$> exprP)
-        <|> try (Equal <$> exprP <* symbol "≡" <*> exprP)
+        <|> symbol "load" *> (Load <$> many anySingle)
+        <|> (try (Define <$> identifierP' <* symbol "=") <*> exprP)
+        <|> (try (Equal <$> exprP <* symbol "≡") <*> exprP)
         <|> Bare <$> exprP
 
-unId :: Env -> Expr -> IOErrH Expr
-unId env (Identifier x) = getvar env x >>= unId env
-unId env (App a b) = liftM2 App (unId env a) (unId env b)
-unId env (Lambda x expr) =  Lambda x <$> unId env expr
-unId _ i = return i
+readH :: Parser a -> String -> IOErrH a
+readH parser str = case parse parser "" str of
+                     Right expr -> return expr
+                     Left err -> throwError $ ParseErr (errorBundlePretty err)
 
 readExpr :: String -> IOErrH Stmt
-readExpr a = case parse stmtP "" a of
-               Right expr -> return expr
-               Left err -> throwError $ ParseErr (errorBundlePretty err)
+readExpr = readH stmtP
+
+readExprList :: String -> IOErrH [Stmt]
+readExprList = readH (endBy stmtP eol)
+
+load :: FilePath -> IOErrH [Stmt]
+load filename = liftIO (readFile filename) >>= readExprList
 
 -- Evaluation
 
-tagify :: Int -> Int -> Expr -> Expr
-tagify e n (Lambda i body) = Lambda (Tag (e,n)) $ tagify e (n + 1) (substitute body i (Tag (e,n)))
-tagify e _ (App exp1 exp2) = App (tagify (e + 2) 0 exp1) (tagify (e + 1) 0 exp2)
-tagify _ _ i = i
+-- unId :: Env -> Expr -> IOErrH Expr
+-- unId env (Identifier x) = getvar env x >>= unId env
+-- unId env (App a b) = liftM2 App (unId env a) (unId env b)
+-- unId env (Lambda x expr) =  Lambda x <$> unId env expr
+-- unId _ i = return i
 
-pp :: Env -> Expr -> IOErrH Expr
-pp env expr = tagify 0 0 <$> unId env (tagify 0 0 expr)
+-- tagify :: Int -> Int -> Expr -> Expr
+-- tagify e n (Lambda i body) = Lambda (Tag (e,n)) $ tagify e (n + 1) (substitute body i (Tag (e,n))) -- Fix this: the substitute substitutes some stuff that it shouldn't
+--                                                                                                    -- E.G a tag 00 could replace an unid'd expr's tag 00
+-- tagify e _ (App exp1 exp2) = App (tagify (e + 2) 0 exp1) (tagify (e + 1) 0 exp2)
+-- tagify _ _ i = i
+
+tagify :: Int -> Int -> Env -> Expr -> IOErrH Expr
+tagify e n env (Lambda i body) = Lambda (Tag (e,n)) <$> tagify e (n + 1) env (substitute body i (Tag (e,n)))
+tagify e _ env (App exp1 exp2) = liftM2 App (tagify (e + 2) 0 env exp1) (tagify (e + 1) 0 env exp2)
+tagify _ _ _ t@(Tag _) = return t
+tagify e n env (Identifier name) = getvar env name >>= tagify (e + 1) n env
+
+-- pp :: Env -> Expr -> IOErrH Expr
+-- pp env expr = tagify 0 0 <$> unId env (tagify 0 0 expr)
 
 substitute :: Expr -> Expr -> Expr -> Expr
 substitute l@(Lambda x expr) old new = if x == old then l else Lambda x $ substitute expr old new
@@ -142,13 +160,14 @@ evalExpr env (Identifier x) = getvar env x
 evalExpr _ expr = return expr
 
 eval :: Env -> Stmt -> IOErrH String
-eval env (Define name expr) = show . tagify 0 0 <$> (pp env expr >>= evalExpr env >>= definevar env name)
-eval env (Display expr) = show . tagify 0 0 <$> (pp env expr >>= evalExpr env)
-eval env (Expand expr) = show . tagify 0 0 <$> pp env expr
-eval env (Equal exp1 exp2) = do e1 <- tagify 0 0 <$> (evalExpr env =<< pp env exp1)
-                                e2 <- tagify 0 0 <$> (evalExpr env =<< pp env exp2)
+eval env (Define name expr) = show <$> (tagify 0 0 env expr >>= evalExpr env >>= definevar env name >>= tagify 0 0 env)
+eval env (Load filename) = load filename >>= mapM_ (eval env) >> return "success"
+eval env (Display expr) = show <$> (tagify 0 0 env expr >>= evalExpr env >>= tagify 0 0 env)
+eval env (Expand expr) = show <$> tagify 0 0 env expr
+eval env (Equal exp1 exp2) = do e1 <- tagify 0 0 env =<< evalExpr env =<< tagify 0 0 env exp1
+                                e2 <- tagify 0 0 env =<< evalExpr env =<< tagify 0 0 env exp2
                                 return $ show (e1 == e2)
-eval env (Bare expr) = show . tagify 0 0 <$> (pp env expr >>= evalExpr env)
+eval env (Bare expr) = show <$> (tagify 0 0 env expr >>= evalExpr env >>= tagify 0 0 env)
 
 extract :: ErrH String -> String
 extract = extract'' . extract'
