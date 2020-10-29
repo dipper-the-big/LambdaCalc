@@ -100,10 +100,10 @@ readH parser str = case parse parser "" str of
                      Left err -> throwError $ ParseErr (errorBundlePretty err)
 
 readExpr :: String -> IOErrH Stmt
-readExpr = readH stmtP
+readExpr = readH (space *> stmtP)
 
 readExprList :: String -> IOErrH [Stmt]
-readExprList = readH (endBy stmtP eol)
+readExprList = readH $ lexeme (sepBy stmtP (symbol ","))
 
 load :: FilePath -> IOErrH [Stmt]
 load filename = liftIO (readFile filename) >>= readExprList
@@ -162,7 +162,7 @@ evalExpr _ expr = return expr
 eval :: Env -> Stmt -> IOErrH String
 eval env (Define name expr) = show <$> (tagify 0 0 env expr >>= evalExpr env >>= definevar env name >>= tagify 0 0 env)
 eval env (Load filename) = load filename >>= mapM_ (eval env) >> return "success"
-eval env (Display expr) = show <$> (tagify 0 0 env expr >>= evalExpr env >>= tagify 0 0 env)
+eval env (Display expr) = (tagify 0 0 env expr >>= evalExpr env >>= tagify 0 0 env) >>= (liftIO . print) >> return ""
 eval env (Expand expr) = show <$> tagify 0 0 env expr
 eval env (Equal exp1 exp2) = do e1 <- tagify 0 0 env =<< evalExpr env =<< tagify 0 0 env exp1
                                 e2 <- tagify 0 0 env =<< evalExpr env =<< tagify 0 0 env exp2
