@@ -1,0 +1,8 @@
+id = λx.x,
+succ = λn f x.f (n f x),
+zero = K I,
+I ≡ S K K,
+one = succ zero,
+two = succ one,
+display: succ two,
+display: one succ one
