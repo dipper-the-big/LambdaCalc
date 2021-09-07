@@ -37,11 +37,12 @@ taglabel (a,b) = ['a'..'z'] !! fromMaybe 0 (elemIndex (a,b) ls)
     ls = (0,0) : concatMap n_part [1..]
 
 data Stmt = Define String Expr
-          | Load String
+          | Load [String]
           | Display Expr
           | Expand Expr
           | Equal Expr Expr
           | Bare Expr
+          deriving Show
 
 data Err = LookupErr String
          | ParseErr String
@@ -91,7 +92,7 @@ stmtP :: Parser Stmt
 stmtP = lexeme
          $  symbol "expand:" *> (Expand <$> exprP)
         <|> symbol "display:" *> (Display <$> exprP)
-        <|> symbol "load" *> (Load <$> many anySingle)
+         <|> symbol "load" *> (Load <$> sepBy (some $ anySingleBut ' ') space)
         <|> (try (Equal <$> exprP <* (symbol "≡" <|> symbol "===")) <*> exprP)
         <|> (try (Define <$> identifierP' <* symbol "=") <*> exprP)
         <|> Bare <$> exprP
@@ -163,7 +164,10 @@ evalExpr _ expr = return expr
 
 eval :: Env -> Stmt -> IOErrH String
 eval env (Define name expr) = show <$> (tagify 0 0 env expr >>= evalExpr env >>= definevar env name >>= tagify 0 0 env)
-eval env (Load filename) = load filename >>= mapM_ (eval env) >> return "success"
+eval env (Load fs) = do  mapM_ (load >=> mapM_ (eval env)) fs
+                         -- forM_ fs $ \fn -> do
+                         --   load fn >>= mapM_ (eval env)
+                         return "success"
 eval env (Display expr) = (tagify 0 0 env expr >>= evalExpr env >>= tagify 0 0 env) >>= (liftIO . print) >> return ""
 eval env (Expand expr) = show <$> tagify 0 0 env expr
 eval env (Equal exp1 exp2) = do e1 <- tagify 0 0 env =<< evalExpr env =<< tagify 0 0 env exp1
@@ -229,8 +233,8 @@ repl = nullEnv >>= loop
 
 -- Extras (For Debugging)
 --
--- par' :: String -> Expr
--- par' a = tagify 0 0 $ case parse exprP "" a of
+-- par' :: String -> Stmt
+-- par' a = case parse stmtP "" a of
 --                         Right expr -> expr
 --                         Left err -> error $ errorBundlePretty err
 
