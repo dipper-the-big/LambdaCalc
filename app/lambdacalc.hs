@@ -72,7 +72,7 @@ identifierP :: Parser Expr
 identifierP  = Identifier <$> identifierP'
 
 lambdaP :: Parser Expr
-lambdaP = try (Lambda <$ symbol "λ" <*> identifierP <* symbol "." <*> exprP)
+lambdaP = try (Lambda <$ (symbol "λ" <|> symbol "\\") <*> identifierP <* symbol "." <*> exprP)
       <|> do _ <- symbol "λ"
              args <- some identifierP
              _ <- symbol "."
@@ -92,8 +92,8 @@ stmtP = lexeme
          $  symbol "expand:" *> (Expand <$> exprP)
         <|> symbol "display:" *> (Display <$> exprP)
         <|> symbol "load" *> (Load <$> many anySingle)
+        <|> (try (Equal <$> exprP <* (symbol "≡" <|> symbol "===")) <*> exprP)
         <|> (try (Define <$> identifierP' <* symbol "=") <*> exprP)
-        <|> (try (Equal <$> exprP <* symbol "≡") <*> exprP)
         <|> Bare <$> exprP
 
 readH :: Parser a -> String -> IOErrH a
