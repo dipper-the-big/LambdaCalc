@@ -1,3 +1,5 @@
+module Lambdacalc where
+
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
@@ -251,3 +253,6 @@ repl = nullEnv >>= loop
 -- teval expr = do env <- nullEnv
 --                 res <- runIOExpr $ fmap (show . tagify 0) $ par expr >>= eval env
 --                 putStrLn res
+
+            -- fn -> do env <- nullEnv
+            --          runIOExpr (eval env (Load fn)) >>= putStrLn >> loop env
