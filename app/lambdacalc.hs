@@ -74,7 +74,7 @@ identifierP  = Identifier <$> identifierP'
 
 lambdaP :: Parser Expr
 lambdaP = try (Lambda <$ (symbol "λ" <|> symbol "\\") <*> identifierP <* symbol "." <*> exprP)
-      <|> do _ <- symbol "λ"
+      <|> do _ <- symbol "λ" <|> symbol "\\"
              args <- some identifierP
              _ <- symbol "."
              body <- exprP
@@ -92,7 +92,7 @@ stmtP :: Parser Stmt
 stmtP = lexeme
          $  symbol "expand:" *> (Expand <$> exprP)
         <|> symbol "display:" *> (Display <$> exprP)
-         <|> symbol "load" *> (Load <$> sepBy (some $ anySingleBut ' ') space)
+        <|> symbol "load" *> (Load <$> sepBy (some $ anySingleBut ' ') space)
         <|> (try (Equal <$> exprP <* (symbol "≡" <|> symbol "===")) <*> exprP)
         <|> (try (Define <$> identifierP' <* symbol "=") <*> exprP)
         <|> Bare <$> exprP
