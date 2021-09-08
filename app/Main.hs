@@ -10,40 +10,39 @@ import Lambdacalc
 data Command = REPL ReplOpts
              | Run RunOpts
 
+-- Written like so to allow for easy addition of features
+
 data ReplOpts = ReplOpts {
   optfiles :: [FilePath]
 }
 
 data RunOpts = RunOpts {
-  optfile :: FilePath,
-  optOut :: FilePath
+  optfile :: FilePath
+  -- optOut :: Maybe FilePath
 }
 
 data Options = Options {
   optComm :: Command
-  -- optOut ::
-  -- optfile :: Maybe FilePath
 }
 
 opts :: Options.Applicative.Parser Options
-opts = Options <$>
-       subparser ( command "repl" (info (REPL <$> (reploptions <**> helper)) (progDesc "starts a lambdacalc repl"))
-                <> command "run" (info (Run <$> (runoptions <**> helper)) (progDesc "runs a lambdacalc file"))
-                 )
+opts = Options <$> ( subparser (command "repl" (info (REPL <$> (reploptions <**> helper)) (progDesc "starts a lambdacalc repl")))
+               <|>   Run <$> runoptions
+                   )
   where
     reploptions = ReplOpts <$>
       many (argument str (metavar "FILES..." <> help "Files to load into the repl"))
 
     runoptions = RunOpts <$>
-      argument str (metavar "FILE" <> help "File to run") <*>
-      argument str (metavar "OUTPUT" <> help "File to output the displays into")
+      argument str (metavar "FILE" <> help "File to run") -- <*>
+      -- optional (strOption (long "output" <> short 'o' <> metavar "OUTPUT" <> help "File to output the displays into"))
 
 main  :: IO ()
 main  = do opts'  <- execParser optsParser
            case optComm opts' of
              REPL ops -> repl (optfiles ops)
              Run ops -> do env <- nullEnv
-                           Control.Monad.void (runIOExpr (eval env (Load [optfile ops])))
+                           void (runIOExpr (eval env (Load [optfile ops])))
   where
     optsParser :: ParserInfo Options
     optsParser = info (opts <**> helper) (progDesc " ")
