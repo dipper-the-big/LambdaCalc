@@ -221,8 +221,11 @@ definevar env var val =
                         writeIORef env $ Map.insert var val env'
                         return val
 
-repl :: IO ()
-repl = nullEnv >>= loop
+repl :: [FilePath] -> IO ()
+repl fs = case fs of
+            [] -> nullEnv >>= loop
+            fs' -> do env <- nullEnv
+                      runIOExpr (eval env (Load fs')) >>= putStrLn >> loop env
   where
     loop env = do
       putStr ">>> "
