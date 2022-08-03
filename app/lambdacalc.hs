@@ -142,17 +142,17 @@ evalExpr env e@(App exp1 exp2) = do e1 <- evalExpr env exp1
                                     if e1 == exp1 && e2 == exp2
                                       then return e
                                       else evalExpr env (App e1 e2)
-evalExpr env (Lambda x e@(App expr y)) = if x == y then return expr else Lambda x <$> evalExpr env e
 evalExpr env (Lambda x expr) =  Lambda x <$> evalExpr env expr
 evalExpr env (Identifier x) = getvar env x
 evalExpr _ expr = return expr
 
 eval :: Env -> Stmt -> IOErrH String
 eval env (Define name expr) = show <$> (tagify 0 0 env expr >>= evalExpr env >>= definevar env name >>= tagify 0 0 env)
-eval env (Load fs) = do  mapM_ (load >=> mapM_ (eval env)) fs
-                         -- forM_ fs $ \fn -> do
-                         --   load fn >>= mapM_ (eval env)
-                         return "success"
+eval env (Load fs) = do forM_ fs $ \fn ->
+                          do stmts <- load fn
+                             forM_ stmts $ \stmt ->
+                               eval env stmt
+                        return "success"
 eval env (Display expr) = (tagify 0 0 env expr >>= evalExpr env >>= tagify 0 0 env) >>= (liftIO . print) >> return ""
 eval env (Expand expr) = show <$> tagify 0 0 env expr
 eval env (Equal exp1 exp2) = do e1 <- tagify 0 0 env =<< evalExpr env =<< tagify 0 0 env exp1
