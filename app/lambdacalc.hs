@@ -113,26 +113,11 @@ load filename = liftIO (readFile filename) >>= readExprList
 
 -- Evaluation
 
--- unId :: Env -> Expr -> IOErrH Expr
--- unId env (Identifier x) = getvar env x >>= unId env
--- unId env (App a b) = liftM2 App (unId env a) (unId env b)
--- unId env (Lambda x expr) =  Lambda x <$> unId env expr
--- unId _ i = return i
-
--- tagify :: Int -> Int -> Expr -> Expr
--- tagify e n (Lambda i body) = Lambda (Tag (e,n)) $ tagify e (n + 1) (substitute body i (Tag (e,n))) -- Fix this: the substitute substitutes some stuff that it shouldn't
---                                                                                                    -- E.G a tag 00 could replace an unid'd expr's tag 00
--- tagify e _ (App exp1 exp2) = App (tagify (e + 2) 0 exp1) (tagify (e + 1) 0 exp2)
--- tagify _ _ i = i
-
 tagify :: Int -> Int -> Env -> Expr -> IOErrH Expr
 tagify e n env (Lambda i body) = Lambda (Tag (e,n)) <$> tagify e (n + 1) env (substitute body i (Tag (e,n)))
 tagify e _ env (App exp1 exp2) = liftM2 App (tagify (e + 2) 0 env exp1) (tagify (e + 1) 0 env exp2)
 tagify _ _ _ t@(Tag _) = return t
 tagify e n env (Identifier name) = getvar env name >>= tagify (e + 1) n env
-
--- pp :: Env -> Expr -> IOErrH Expr
--- pp env expr = tagify 0 0 <$> unId env (tagify 0 0 expr)
 
 substitute :: Expr -> Expr -> Expr -> Expr
 substitute l@(Lambda x expr) old new = if x == old then l else Lambda x $ substitute expr old new

@@ -12,16 +12,16 @@ data Command = REPL ReplOpts
 
 -- Written like so to allow for easy addition of features
 
-data ReplOpts = ReplOpts {
+newtype ReplOpts = ReplOpts {
   optfiles :: [FilePath]
 }
 
-data RunOpts = RunOpts {
+newtype RunOpts = RunOpts {
   optfile :: FilePath
   -- optOut :: Maybe FilePath
 }
 
-data Options = Options {
+newtype Options = Options {
   optComm :: Command
 }
 
